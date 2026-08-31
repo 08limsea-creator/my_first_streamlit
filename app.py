@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,26 @@ from src.ui_helpers import (
 ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = ROOT / "data" / "processed" / "dataset_manifest.json"
 TAB_LABELS = ("🏠 메인", "⭐ MY", "📊 데이터 인사이트", "💬 챗봇")
+
+CHATBOT_SYSTEM = """[신분]
+너는 '천국철'의 직장인 맞춤형 출퇴근 상담 전문가다.
+사용자의 출퇴근 상황과 천국철의 혼잡도 분석 결과를 바탕으로 가장 적합한 이동 시간과 이동 방법을 추천한다.
+
+[지식 — 확인된 데이터만 사용]
+아래에 제공되는 천국철 조회 결과와 현재 대화에서 사용자가 직접 알려준 정보만 사용한다.
+사용자의 출근·퇴근 시간, 도착 희망 시간, 혼잡 회피 여부, 환승 및 도보 선호를 함께 고려한다.
+
+[규칙]
+천국철 데이터에 없는 내용은 추측하거나 임의로 만들지 않는다.
+정보가 부족하면 출발역, 도착역, 도착 희망 시간 등 필요한 정보를 물어본다.
+혼잡도와 이동 시간은 확정적인 정보처럼 말하지 않고 예상 또는 추천으로 안내한다.
+실시간 지연이나 운행 상황처럼 확인할 수 없는 정보는 확인할 수 없다고 솔직하게 안내한다.
+역 연결·소요 시간 데이터가 없으면 빠른 경로나 환승 경로를 만들어내지 않는다.
+
+[형식]
+회사 동료처럼 친절하고 간결한 존댓말을 사용한다.
+핵심 정보를 먼저 전달하고, 가능하면 추천 시간과 추천 이유를 함께 설명한다.
+필요하면 2~3개의 방법을 비교하고 이모지는 1~2개만 사용한다."""
 
 st.set_page_config(
     page_title="천국철 | 덜 붐비는 지하철 시간 찾기",
@@ -872,24 +893,139 @@ def render_insights_tab(reference: pd.DataFrame, manifest: dict) -> None:
     st.caption("지역별 데이터 기간이 다르므로 서로 다른 지역의 절대 수요를 직접 비교하지 않습니다.")
 
 
-def render_chatbot_tab() -> None:
-    section_title(1, "챗봇", "맞춤형 이동 상담을 위한 공간")
-    st.markdown(
-        """
-        <div class="chat-shell">
-          <div class="chat-body">
-            <div>
-              <div class="chat-empty-icon">💬</div>
-              <div class="chat-empty-title">천국철 챗봇 준비 중</div>
-              <div class="chat-empty-copy">나중에 혼잡도와 추천 결과를 바탕으로<br>이동 시간을 상담할 수 있는 공간이에요.</div>
-            </div>
-          </div>
-          <div class="chat-input-placeholder"><span>메시지를 입력하는 공간</span><span>➤</span></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+def chatbot_api_key() -> str:
+    """Read the Claude key without ever storing it in source code."""
+    try:
+        secret_key = str(st.secrets.get("ANTHROPIC_API_KEY", "")).strip()
+    except (FileNotFoundError, KeyError):
+        secret_key = ""
+    return secret_key or os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+
+def chatbot_model() -> str:
+    try:
+        secret_model = str(st.secrets.get("ANTHROPIC_MODEL", "")).strip()
+    except (FileNotFoundError, KeyError):
+        secret_model = ""
+    return secret_model or os.getenv("ANTHROPIC_MODEL", "").strip() or "claude-opus-4-8"
+
+
+def chatbot_context(reference: pd.DataFrame) -> str:
+    search = st.session_state.get("search")
+    if not search:
+        return "[현재 천국철 조회 결과]\n아직 사용자가 메인 탭에서 이동 조건을 조회하지 않았다."
+
+    lines = [
+        "[현재 천국철 조회 결과]",
+        f"지역: {search['city']}",
+        f"노선: {search['line']}",
+        f"출발역: {search['origin_name']}",
+        f"도착역: {search['destination_name']}",
+        f"요일: {weekday_label(search['weekday'])}",
+        f"선택 시간: {search['hour']:02d}:00~{search['hour'] + 1:02d}:00",
+    ]
+    try:
+        query = query_congestion(
+            city=search["city"],
+            weekday=search["weekday"],
+            hour=search["hour"],
+            line=search["line"],
+            station_code=search["origin_code"],
+            reference=reference,
+        )
+        summary = query["summary"]
+        lines.extend(
+            [
+                f"출발역 예상 혼잡도: {summary['congestion_score']:.1f}점 ({summary['congestion_level']})",
+                f"출발역 예상 승하차 수요 중앙값: {summary['median_passenger_volume']:,}명",
+                f"최소 분석 표본: {summary['minimum_sample_days']}일",
+            ]
+        )
+        time_result = recommend_adjacent_times(
+            city=search["city"],
+            weekday=search["weekday"],
+            hour=search["hour"],
+            line=search["line"],
+            station_code=search["origin_code"],
+            window_hours=search["window_hours"],
+            reference=reference,
+        )
+        recommendations = time_result.get("recommendations", [])[:3]
+        if recommendations:
+            lines.append("더 한산한 추천 시간:")
+            lines.extend(
+                f"- {item['time_range']}: {item['congestion_score']:.1f}점 "
+                f"({item['congestion_level']}), 현재보다 {item['improvement_points']:.1f}점 낮음"
+                for item in recommendations
+            )
+        else:
+            lines.append(f"시간 추천: {time_result['message']}")
+    except CoreLogicError as error:
+        lines.append(f"조회 결과 계산 오류: {error}")
+
+    lines.append("역 연결·환승·구간별 소요 시간 자료는 현재 제공되지 않는다.")
+    return "\n".join(lines)
+
+
+def render_chatbot_tab(reference: pd.DataFrame) -> None:
+    section_title(1, "챗봇", "천국철 조회 결과를 바탕으로 Claude와 상담해요")
+    api_key = chatbot_api_key()
+    if not api_key:
+        st.warning(
+            "Claude API 키가 설정되지 않았습니다. 로컬에서는 `ANTHROPIC_API_KEY` 환경변수, "
+            "배포 환경에서는 Streamlit Secrets에 같은 이름으로 등록해 주세요."
+        )
+
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = [
+            {
+                "role": "assistant",
+                "content": "안녕하세요! 메인 탭에서 조회한 혼잡도 결과를 바탕으로 이동 시간을 함께 골라드릴게요. 무엇이 궁금하세요?",
+            }
+        ]
+
+    for message in st.session_state["chat_messages"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    prompt = st.chat_input(
+        "예: 지금보다 덜 붐비는 시간은 언제야?",
+        disabled=not bool(api_key),
     )
-    st.caption("현재는 화면 공간만 구성되어 있으며 챗봇 기능과 외부 API는 연결하지 않았습니다.")
+    if not prompt:
+        st.caption("Claude는 현재 대화 내용과 천국철의 조회 결과만 전달받습니다. 실시간 운행 정보는 확인하지 못합니다.")
+        return
+
+    st.session_state["chat_messages"].append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("천국철 상담 답변을 만들고 있어요..."):
+            try:
+                import anthropic
+
+                client = anthropic.Anthropic(api_key=api_key)
+                response = client.messages.create(
+                    model=chatbot_model(),
+                    max_tokens=1024,
+                    system=f"{CHATBOT_SYSTEM}\n\n{chatbot_context(reference)}",
+                    messages=st.session_state["chat_messages"],
+                )
+                answer = "\n".join(
+                    block.text for block in response.content if getattr(block, "type", "") == "text"
+                ).strip()
+                if not answer:
+                    answer = "답변을 만들지 못했습니다. 질문을 조금 다르게 입력해 주세요."
+                st.markdown(answer)
+                st.session_state["chat_messages"].append(
+                    {"role": "assistant", "content": answer}
+                )
+            except Exception as error:
+                error_name = type(error).__name__
+                st.error(f"Claude API 호출에 실패했습니다 ({error_name}). API 키와 모델 설정을 확인해 주세요.")
+
+    st.caption("Claude 답변은 예상 혼잡도 상담을 돕기 위한 참고 정보이며, 실시간 운행 정보가 아닙니다.")
 
 
 def main() -> None:
@@ -914,7 +1050,7 @@ def main() -> None:
     with insights_tab:
         render_insights_tab(reference, manifest)
     with chatbot_tab:
-        render_chatbot_tab()
+        render_chatbot_tab(reference)
 
 
 if __name__ == "__main__":
