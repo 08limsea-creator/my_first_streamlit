@@ -1,0 +1,131 @@
+{
+  "generated_at": "2026-08-28T17:10:16+09:00",
+  "schema_version": "1.0",
+  "common_hours": {
+    "start": 6,
+    "end_exclusive": 24,
+    "interval_minutes": 60
+  },
+  "row_count": 2795238,
+  "columns": [
+    "city",
+    "date",
+    "year",
+    "month",
+    "weekday_num",
+    "weekday",
+    "day_type",
+    "line",
+    "station_code",
+    "station_name",
+    "station_id",
+    "hour",
+    "boardings",
+    "alightings",
+    "passenger_volume",
+    "source_file"
+  ],
+  "integrated_file": "subway_demand.parquet",
+  "integrated_file_bytes": 13962557,
+  "reference_file": "congestion_reference.parquet",
+  "reference_rows": 58050,
+  "score_policy": {
+    "basis": "city-line-station-weekday percentile across 18 hourly median passenger volumes",
+    "bands": [
+      {
+        "min": 0,
+        "max": 20,
+        "level": "매우 여유"
+      },
+      {
+        "min_exclusive": 20,
+        "max": 40,
+        "level": "여유"
+      },
+      {
+        "min_exclusive": 40,
+        "max": 60,
+        "level": "보통"
+      },
+      {
+        "min_exclusive": 60,
+        "max": 80,
+        "level": "혼잡"
+      },
+      {
+        "min_exclusive": 80,
+        "max": 100,
+        "level": "매우 혼잡"
+      }
+    ]
+  },
+  "excluded_files": [
+    "서울교통공사_월별 승하차인원_20251231.csv (시간대 없음)",
+    "인천교통공사_일별 역별 시간대별 이용인원현황_20260430.csv (해시 중복)",
+    "대전교통공사_시간대별 승하차인원_20260731.csv (해시 중복)",
+    "대구교통공사_역별일별시간별승하차인원현황_20260630.csv (해시 중복)"
+  ],
+  "cities": [
+    {
+      "city": "서울",
+      "source_file": "서울_역별일별시간대별승하차인원_20241231.csv",
+      "source_sha256": "2cb197ee17b5ed95c7c54ae05a3688a336ee0d0908416c8ab7af905e1296ff72",
+      "rows": 1794816,
+      "date_min": "2024-01-01",
+      "date_max": "2024-12-31",
+      "date_count": 366,
+      "line_count": 8,
+      "station_code_count": 274,
+      "hour_min": 6,
+      "hour_max": 23,
+      "passenger_volume_sum": 3254798047
+    },
+    {
+      "city": "인천",
+      "source_file": "인천_일별역별시간대별이용인원_20260430.csv",
+      "source_sha256": "9554a3659b4bf802215183683d97c558bb984b8575cda2070e030604ac431ce6",
+      "rows": 610218,
+      "date_min": "2025-01-01",
+      "date_max": "2026-04-30",
+      "date_count": 485,
+      "line_count": 3,
+      "station_code_count": 71,
+      "hour_min": 6,
+      "hour_max": 23,
+      "passenger_volume_sum": 402063387
+    },
+    {
+      "city": "대전",
+      "source_file": "대전_시간대별승하차인원_20260731.csv",
+      "source_sha256": "05767c55278399f0d25266fda98cbbce6a78cd48dddafabd6748e01acef82508",
+      "rows": 83952,
+      "date_min": "2026-01-01",
+      "date_max": "2026-07-31",
+      "date_count": 212,
+      "line_count": 1,
+      "station_code_count": 22,
+      "hour_min": 6,
+      "hour_max": 23,
+      "passenger_volume_sum": 43932696
+    },
+    {
+      "city": "대구",
+      "source_file": "대구_역별일별시간별승하차인원_20260630.csv",
+      "source_sha256": "a9789f01a7c3d0659648390296bdd91e8bf02603959f971bc0da270390ca52b8",
+      "rows": 306252,
+      "date_min": "2026-01-01",
+      "date_max": "2026-06-30",
+      "date_count": 181,
+      "line_count": 3,
+      "station_code_count": 94,
+      "hour_min": 6,
+      "hour_max": 23,
+      "passenger_volume_sum": 147199635
+    }
+  ],
+  "quality_status_counts": {
+    "PASS": 41,
+    "INFO": 13,
+    "WARN": 3
+  }
+}
